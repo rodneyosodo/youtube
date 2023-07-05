@@ -1,0 +1,77 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+$script = <<SCRIPT
+echo "Updating apt-get..."
+sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get autoremove -y
+
+if ! command -v docker &>/dev/null; then
+    echo "Docker is not installed. Installing Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh ./get-docker.sh
+    echo "Docker has been installed."
+else
+    echo "Docker is already installed."
+fi
+  
+echo "Restarting Docker..."
+sudo service docker restart
+  
+echo "Adding vagrant user to docker group..."
+sudo usermod -aG docker vagrant
+
+echo "Checking docker version..."
+sudo docker --version
+
+echo "Installing make..."
+sudo apt-get install make -y
+
+if ! command -v /usr/local/go/bin/go &>/dev/null; then
+    echo "Go is not installed. Installing Go..."
+    curl -OL https://go.dev/dl/go1.20.5.linux-amd64.tar.gz
+    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.20.5.linux-amd64.tar.gz && rm go1.20.5.linux-amd64.tar.gz
+    export PATH=$PATH:/usr/local/go/bin
+    echo "Go has been installed."
+else
+    echo "Go is already installed."
+    export PATH=$PATH:/usr/local/go/bin
+fi
+
+echo "Checking go version..."
+go version
+
+if [ ! -d "mainflux" ]; then
+    echo "Cloning mainflux..."
+    git clone https://github.com/mainflux/mainflux/
+    cd mainflux
+    git fetch --all --tags
+else
+    echo "mainflux directory already exists. Skipping cloning."
+    cd mainflux
+    git fetch --all --tags
+fi
+
+docker compose -f docker/docker-compose.yml pull
+
+echo "Building mainflux..."
+make all && make dockers_dev
+SCRIPT
+
+# All Vagrant configuration is done below. The "2" in Vagrant.configure
+# configures the configuration version (we support older styles for
+# backwards compatibility). Please don't change it unless you know what
+# you're doing.
+Vagrant.configure("2") do |config|
+  config.vm.box = "hashicorp/bionic64"
+  config.vm.hostname = "youtube-mainflux"
+  config.vm.network "forwarded_port", guest: 80, host: 80, auto_correct: true, host_ip: "127.0.0.1"
+  config.vm.network "forwarded_port", guest: 1883, host: 1883, auto_correct: true, host_ip: "127.0.0.1"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.gui = false
+    vb.memory = "2048"
+    vb.cpus = "2"
+  end
+
+  config.vm.provision "shell", inline: $script, privileged: false
+end
